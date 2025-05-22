@@ -1,0 +1,13 @@
+[package]
+name = "PassHiveCLI"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+colored = "3.0.0"
+console = "0.15.11"
+indicatif = "0.17.11"
+rand = "0.9.1"
+rpassword = "7.4.0"
+rusqlite = {version = "0.35.0", features = ["bundled"]}
+tabled = "0.19.0"
