@@ -1,4 +1,5 @@
 mod cli;
+mod db;
 mod os_work;
 
 fn main() {
@@ -13,5 +14,9 @@ fn main() {
         os_work::init_dir(&path);
         cli::success_init_dir(&path);
         cli::init_db();
+        match db::init_db(&path) {
+            Ok(_) => cli::success_init_db(),
+            Err(e) => cli::throw_err(e),
+        }
     }
 }

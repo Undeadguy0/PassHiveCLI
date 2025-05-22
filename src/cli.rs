@@ -37,11 +37,16 @@ pub fn check_error(os: &String) {
 pub fn success_init_dir(path: &PathBuf) {
     print!("{}", "Директория ".truecolor(246, 196, 32));
     print!("{} ", path.display());
-    print!("{}", "создана успешно!".green().bold());
+    print!("{}", "создана успешно!\n".green().bold());
 }
 
 pub fn init_db() {
-    println!("{}", "Инициализурую БД, бзз".truecolor(246, 196, 32));
+    println!("{}", "Инициализурую БД, бзз\n".truecolor(246, 196, 32));
+}
+
+pub fn success_init_db() {
+    print!("{}", "База данных ".truecolor(246, 196, 32));
+    print!("{}", "создана успешно!".green().bold());
 }
 
 pub fn throw_err(msg: String) {
