@@ -33,6 +33,5 @@ pub fn init_db(path: &PathBuf) -> Result<(), String> {
     connection
         .execute(sql_users, [])
         .map_err(|e| format!("Ошибка создания таблицы users: {}", e))?;
-
     Ok(())
 }

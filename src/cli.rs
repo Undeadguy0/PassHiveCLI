@@ -15,7 +15,7 @@ pub fn check_success() {
         "{}",
         "Подключение к рабочей директории ".truecolor(246, 196, 32)
     );
-    print!("{}", "успешно!".green().bold());
+    print!("{}", "успешно!\n".green().bold());
     stdout().flush().unwrap();
 }
 
@@ -46,9 +46,9 @@ pub fn init_db() {
 
 pub fn success_init_db() {
     print!("{}", "База данных ".truecolor(246, 196, 32));
-    print!("{}", "создана успешно!".green().bold());
+    print!("{}", "создана успешно!\n".green().bold());
 }
 
 pub fn throw_err(msg: String) {
-    println!("{}", msg.bold().red());
+    panic!("{}", msg.bold().red());
 }
