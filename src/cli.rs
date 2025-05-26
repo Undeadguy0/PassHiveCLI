@@ -240,7 +240,7 @@ pub fn auth_seccess() {
     println!(
         "{} {}",
         "Вход в учетную запись".truecolor(246, 196, 32),
-        "успешна!".green().bold()
+        "успешнeн!".green().bold()
     );
 }
 

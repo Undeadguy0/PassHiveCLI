@@ -38,6 +38,38 @@ fn reg(path: &PathBuf) -> bool {
     unreachable!("Ошибка в цикле регистрации!");
 }
 
+fn auth(path: &PathBuf) -> (i64, String) {
+    loop {
+        print!("\x1B[2J\x1B[1;1H");
+        let (input_login, input_password) = cli::get_auth_data(&path);
+
+        match db_work::find_by_login(&path, &input_login) {
+            Err(e) => cli::throw_err(e),
+            Ok(response) => match response {
+                Some((db_id, hash)) => match crypto::check_password(&hash, &input_password) {
+                    Err(e) => cli::throw_err(e),
+                    Ok(is_correct) => {
+                        if is_correct {
+                            cli::auth_seccess();
+                            return (db_id, hash);
+                        } else {
+                            cli::auth_failure();
+                            continue;
+                        }
+                    }
+                },
+                _ => {
+                    println!(
+                        "{}",
+                        "Ошибка аутентификации. Попробуйте еще раз.".purple().bold()
+                    );
+                    continue;
+                }
+            },
+        }
+    }
+}
+
 fn main() {
     cli::hi();
 
@@ -78,44 +110,11 @@ fn main() {
                         continue;
                     }
                 }
-                cli::AccountManipulation::Auth => loop {
-                    print!("\x1B[2J\x1B[1;1H");
-                    let (input_login, input_password) = cli::get_auth_data(&path);
-
-                    match db_work::find_by_login(&path, &input_login) {
-                        Err(e) => cli::throw_err(e),
-                        Ok(response) => {
-                            match response {
-                                Some((db_id, hash)) => {
-                                    match crypto::check_password(&hash, &input_password) {
-                                        Err(e) => cli::throw_err(e),
-                                        Ok(is_correct) => {
-                                            if is_correct {
-                                                cli::auth_seccess();
-                                                global_id = db_id;
-                                                global_hash = hash;
-                                                exit = true;
-                                                break;
-                                            } else {
-                                                cli::auth_failure();
-                                                continue;
-                                            }
-                                        }
-                                    }
-                                }
-                                _ => {
-                                    println!(
-                                        "{}",
-                                        "Ошибка аутентификации. Попробуйте еще раз."
-                                            .purple()
-                                            .bold()
-                                    );
-                                    continue;
-                                }
-                            };
-                        }
-                    }
-                },
+                cli::AccountManipulation::Auth => {
+                    (global_id, global_hash) = auth(&path);
+                    exit = true;
+                    break;
+                }
             }
         }
         if exit {
