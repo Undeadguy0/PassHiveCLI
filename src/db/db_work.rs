@@ -32,7 +32,10 @@ pub fn init_db(path: &PathBuf) -> Result<(), String> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             owner INTEGER NOT NULL,
             data_type TEXT NOT NULL,
-            data TEXT NOT NULL
+            data TEXT NOT NULL,
+            name TEXT,
+            notice TEXT,
+            nonce TEXT NOT NULL
         )";
     connection
         .execute(sql_users, [])

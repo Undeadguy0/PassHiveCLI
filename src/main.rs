@@ -121,4 +121,6 @@ fn main() {
             break;
         }
     }
+
+    loop {}
 }

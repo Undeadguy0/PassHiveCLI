@@ -1,5 +1,31 @@
 use colored::*;
 use rpassword::read_password;
+
+use super::db::models;
+
+pub struct DataFromUser {
+    name: Option<String>,
+    notice: Option<String>,
+    data_type: models::DataType,
+    data: String,
+}
+
+impl DataFromUser {
+    fn new(
+        name: Option<String>,
+        notice: Option<String>,
+        data_type: models::DataType,
+        data: String,
+    ) -> Self {
+        DataFromUser {
+            name,
+            notice,
+            data_type,
+            data,
+        }
+    }
+}
+
 use std::{
     io::{Write, stdin, stdout},
     path::PathBuf,
@@ -247,3 +273,5 @@ pub fn auth_seccess() {
 pub fn auth_failure() {
     println!("{}", "Неверный пароль или логин!".purple().bold());
 }
+
+pub fn get_data_from_user() -> DataFromUser {}
