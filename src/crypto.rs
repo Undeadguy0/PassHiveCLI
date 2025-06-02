@@ -1,13 +1,14 @@
-use core::prelude;
-use std::{panic::AssertUnwindSafe, time::Duration};
-
+use crate::db::models::{DataType, UserData};
 use argon2::{
     Algorithm, Argon2, Params, PasswordHash, PasswordVerifier, Version,
     password_hash::{PasswordHasher, SaltString},
 };
+use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305, XNonce, aead::AeadMut};
 use indicatif::*;
 use rand::TryRngCore;
 use rand_core::{OsRng, RngCore};
+use serde_json::{Deserializer, Serializer};
+use std::time::Duration;
 
 pub fn encode(password: String) -> Result<(String, String), String> {
     let spinner = ProgressBar::new_spinner();
@@ -83,4 +84,47 @@ pub fn check_password(hash: &String, pass: &String) -> Result<bool, String> {
     }
 
     Err("Ошибка выхода из match в check_password!".to_string())
+}
+
+pub fn create_nonce() -> Result<[u8; 24], String> {
+    let mut total = [0u8; 24];
+    match OsRng.try_fill_bytes(&mut total) {
+        Err(e) => return Err(e.to_string()),
+        Ok(()) => return Ok(total),
+    }
+}
+
+pub fn encrypt_data(hash: &String, nonce: &[u8; 24], data: &String) -> Result<Vec<u8>, String> {
+    let mut cipher = XChaCha20Poly1305::new(Key::from_slice(hash.as_bytes()));
+    let cha_cha_nonce = XNonce::from_slice(nonce);
+    match cipher.encrypt(cha_cha_nonce, data.as_ref()) {
+        Err(_) => {
+            return Err("Ошибка шифрования данных!".to_string());
+        }
+        Ok(encrypted) => {
+            return Ok(encrypted);
+        }
+    }
+}
+
+pub fn unencrypt_data(hash: &String, nonce: &[u8; 24], data: &Vec<u8>) -> Result<DataType, String> {
+    let mut cipher = XChaCha20Poly1305::new(Key::from_slice(hash.as_bytes()));
+    let xnonce = XNonce::from_slice(nonce);
+    match cipher.decrypt(&xnonce, data.as_ref()) {
+        Err(_) => return Err("Ошибка расшифровки данных!!!".to_string()),
+        Ok(unencrypted) => {
+            let st = str::from_utf8(&unencrypted).unwrap();
+            let total: DataType = serde_json::from_str(st).unwrap();
+            return Ok(total);
+        }
+    }
+}
+
+pub fn unencrypt_str(hash: &String, nonce: &[u8; 24], string: &Vec<u8>) -> Result<String, String> {
+    let mut cipher = XChaCha20Poly1305::new(Key::from_slice(hash.as_bytes()));
+    let xnonce = XNonce::from_slice(nonce);
+    match cipher.decrypt(&xnonce, string.as_ref()) {
+        Err(_) => return Err("Ошибка расшифровки данных!!!".to_string()),
+        Ok(uncrypt) => return Ok(str::from_utf8(&uncrypt).unwrap().to_string()),
+    }
 }

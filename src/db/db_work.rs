@@ -32,10 +32,10 @@ pub fn init_db(path: &PathBuf) -> Result<(), String> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             owner INTEGER NOT NULL,
             data_type TEXT NOT NULL,
-            data TEXT NOT NULL,
-            name TEXT,
-            notice TEXT,
-            nonce TEXT NOT NULL
+            data BLOB NOT NULL,
+            name BLOB,
+            notice BLOB,
+            nonce BLOB NOT NULL
         )";
     connection
         .execute(sql_users, [])
@@ -110,4 +110,23 @@ pub fn find_by_login(path: &PathBuf, login: &String) -> Result<Option<(i64, Stri
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
+}
+
+pub fn get_all_user_data(path: &PathBuf, user_id: i64) -> Result<Vec<UserData>, rusqlite::Error> {
+    let connection = connect_to_db(path).map_err(|e| rusqlite::Error::InvalidQuery)?;
+
+    let mut stmt = connection
+        .prepare("SELECT id, data_type, data, name, notice, nonce FROM users WHERE owner = ?1")?;
+
+    let user_iter = stmt.query_map(params![user_id], |row| {
+        let id = row.get::<_, i64>(0)?;
+        let data_type = row.get::<_, String>(1)?;
+        let data = row.get::<_, Vec<u8>>(2)?;
+        let name = row.get::<_, Vec<u8>>(3)?;
+        let notice = row.get::<_, Vec<u8>>(4)?;
+        let nonce = row.get::<_, [u8; 24]>(5)?;
+        Ok(UserData::new(id, data, data_type, nonce, notice, name))
+    })?;
+
+    user_iter.collect()
 }

@@ -2,11 +2,70 @@ mod cli;
 mod crypto;
 mod db;
 mod os_work;
-use argon2::password_hash;
-use cli::db_conn_success;
 use colored::Colorize;
-use db::db_work;
-use std::path::PathBuf;
+use db::{db_work, models};
+use std::{collections::BTreeMap, path::PathBuf};
+
+use crate::db::models::{DataType, UserData};
+
+struct ShowableData {
+    id: i64,
+    nonce: [u8; 24],
+    data: models::DataType,
+}
+
+fn init_user_data(
+    global_hash: &String,
+    path: &PathBuf,
+    id: i64,
+) -> BTreeMap<String, Vec<ShowableData>> {
+    let mut uploaded_data = vec![];
+    match db_work::get_all_user_data(path, id) {
+        Err(e) => cli::throw_err(e.to_string()),
+        Ok(data) => uploaded_data = data,
+    }
+
+    let mut total: BTreeMap<String, Vec<ShowableData>> = BTreeMap::new();
+
+    total.insert("password".to_string(), Vec::new());
+    total.insert("card".to_string(), Vec::new());
+    total.insert("document".to_string(), Vec::new());
+    total.insert("token".to_string(), Vec::new());
+    total.insert("wificonfig".to_string(), Vec::new());
+    total.insert("passport".to_string(), Vec::new());
+
+    for data in uploaded_data.iter() {
+        let decrypted = crypto::unencrypt_data(global_hash, &(data.nonce), &(data.data));
+        match decrypted {
+            Err(e) => cli::throw_err(e),
+            Ok(decrypted_data) => {
+                let mut entry = String::new();
+                let check_type = data.data_type.clone();
+                match check_type {
+                    DataType::Card { num, cvv, bank } => entry = "card".to_string(),
+                    DataType::Token { token, from } => entry = "token".to_string(),
+                    DataType::Passport {
+                        fsl,
+                        date,
+                        sex,
+                        serial,
+                        num,
+                    } => entry = "passport".to_string(),
+                    DataType::WifiConfig { name, password } => entry = "wificonfig".to_string(),
+                    DataType::Password { password } => entry = "password".to_string(),
+                    DataType::Document { text } => entry = "document".to_string(),
+                }
+                total.get_mut(&entry).unwrap().push(ShowableData {
+                    id: data.id,
+                    nonce: data.nonce,
+                    data: decrypted_data,
+                });
+            }
+        }
+    }
+
+    total
+}
 
 fn reg(path: &PathBuf) -> bool {
     let (login, password) = cli::registration();
@@ -94,8 +153,8 @@ fn main() {
         cli::success_init_db();
     }
 
-    let mut global_id;
-    let mut global_hash;
+    let mut global_id = -1;
+    let mut global_hash = String::default();
     let mut exit = false;
 
     loop {
@@ -122,5 +181,18 @@ fn main() {
         }
     }
 
-    loop {}
+    // вход прошел успешно - основной цикл
+    if global_id == -1 {
+        cli::throw_err(
+            "Ошибка выхода из цикла входа + регистрации, id пользователя - -1!!!".to_string(),
+        );
+    }
+
+    let mut global_user_data = init_user_data(&global_hash, &path, global_id);
+    loop {
+        match db_work::get_all_user_data(&path, global_id) {
+            Err(e) => cli::throw_err(e.to_string()),
+            Ok(data) => all_user_data = data,
+        }
+    }
 }

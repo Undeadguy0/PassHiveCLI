@@ -273,5 +273,3 @@ pub fn auth_seccess() {
 pub fn auth_failure() {
     println!("{}", "Неверный пароль или логин!".purple().bold());
 }
-
-pub fn get_data_from_user() -> DataFromUser {}
