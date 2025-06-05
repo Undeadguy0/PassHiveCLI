@@ -1,4 +1,8 @@
+use std::default;
+
 use serde::{Deserialize, Serialize};
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct UserMeta {
@@ -25,7 +29,13 @@ impl Sex {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+impl Default for Sex {
+    fn default() -> Self {
+        Sex::NotDeclaredYet
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, EnumIter)]
 pub enum DataType {
     Password {
         password: String,
@@ -61,7 +71,7 @@ pub enum DataType {
 }
 
 impl DataType {
-    fn to_string(&self) -> String {
+    pub fn to_string(&self) -> String {
         match self {
             DataType::Password { password } => {
                 format!("Пароль: {}\n", password)
@@ -93,6 +103,27 @@ impl DataType {
                     serial,
                     num
                 )
+            }
+        }
+    }
+
+    pub fn name(&self) -> String {
+        match self {
+            DataType::Card { num, cvv, bank } => {
+                return "Банковская карта (номер, CVV, банк)".to_string();
+            }
+            DataType::Token { token, from } => return "Токен (токен, от чего)".to_string(),
+            DataType::Document { text } => return "Документ (текст)".to_string(),
+            DataType::Passport {
+                fsl,
+                date,
+                sex,
+                serial,
+                num,
+            } => return "Пасспорт (ФИО, дата рождения, пол, серия, номер)".to_string(),
+            DataType::Password { password } => return "Пароль (пароль)".to_string(),
+            DataType::WifiConfig { name, password } => {
+                return "Wifi сеть (ip/название, пароль)".to_string();
             }
         }
     }

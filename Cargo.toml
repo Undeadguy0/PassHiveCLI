@@ -9,10 +9,15 @@ base64 = "0.22.1"
 chacha20poly1305 = "0.10.1"
 colored = "3.0.0"
 console = "0.15.11"
+crossterm = "0.29.0"
 indicatif = "0.17.11"
 rand = "0.9.1"
 rand_core = "0.9.3"
 rpassword = "7.4.0"
 rusqlite = { version = "0.35.0", features = ["bundled"] }
-serde = { version = "1.0.219", features = ["devire"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.140"
+strum = "0.27.1"
+strum_macros = "0.27.1"
+
 tabled = "0.19.0"

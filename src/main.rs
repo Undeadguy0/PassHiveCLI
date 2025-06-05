@@ -3,15 +3,20 @@ mod crypto;
 mod db;
 mod os_work;
 use colored::Colorize;
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    terminal::{disable_raw_mode, enable_raw_mode},
+};
 use db::{db_work, models};
 use std::{collections::BTreeMap, path::PathBuf};
 
-use crate::db::models::{DataType, UserData};
+use crate::db::models::DataType;
 
-struct ShowableData {
-    id: i64,
-    nonce: [u8; 24],
-    data: models::DataType,
+pub struct ShowableData {
+    pub id: i64,
+    pub name: String,
+    pub nonce: [u8; 24],
+    pub data: models::DataType,
 }
 
 fn init_user_data(
@@ -55,11 +60,17 @@ fn init_user_data(
                     DataType::Password { password } => entry = "password".to_string(),
                     DataType::Document { text } => entry = "document".to_string(),
                 }
-                total.get_mut(&entry).unwrap().push(ShowableData {
-                    id: data.id,
-                    nonce: data.nonce,
-                    data: decrypted_data,
-                });
+                match crypto::unencrypt_str(global_hash, &(data.nonce), &(&data.name)) {
+                    Ok(n) => {
+                        total.get_mut(&entry).unwrap().push(ShowableData {
+                            id: data.id,
+                            name: n,
+                            nonce: data.nonce,
+                            data: decrypted_data,
+                        });
+                    }
+                    Err(e) => cli::throw_err(e),
+                }
             }
         }
     }
@@ -129,6 +140,12 @@ fn auth(path: &PathBuf) -> (i64, String) {
     }
 }
 
+fn add_row_mode(path: &PathBuf, id: i64, hash: &String) {
+    cli::get_new_row_data();
+}
+fn update_row_mode(path: &PathBuf, id: i64, hash: &String) {}
+fn delete_row_mode(path: &PathBuf, id: i64, hash: &String) {}
+
 fn main() {
     cli::hi();
 
@@ -190,9 +207,45 @@ fn main() {
 
     let mut global_user_data = init_user_data(&global_hash, &path, global_id);
     loop {
-        match db_work::get_all_user_data(&path, global_id) {
-            Err(e) => cli::throw_err(e.to_string()),
-            Ok(data) => all_user_data = data,
+        if let Err(e) = enable_raw_mode() {
+            cli::throw_err(e.to_string());
         }
+
+        print!("\x1B[2J\x1B[1;1H");
+        cli::show_all_data(&global_user_data);
+        cli::show_hotkeys();
+        loop {
+            if let Err(_) = event::poll(std::time::Duration::from_millis(500)) {
+                cli::throw_err("Ошибка обработки событий!".to_string());
+            } else {
+                if let Event::Key(KeyEvent {
+                    code,
+                    modifiers,
+                    kind,
+                    state,
+                }) = event::read().unwrap()
+                {
+                    match (code, modifiers) {
+                        (KeyCode::Char('a'), KeyModifiers::CONTROL) => {
+                            add_row_mode(&path, global_id, &global_hash);
+                        }
+                        (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+                            update_row_mode(&path, global_id, &global_hash);
+                        }
+                        (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                            delete_row_mode(&path, global_id, &global_hash);
+                        }
+                        (KeyCode::Char('e'), KeyModifiers::CONTROL) => {
+                            disable_raw_mode().unwrap();
+                            std::process::exit(0);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        break;
     }
+
+    disable_raw_mode().unwrap();
 }
