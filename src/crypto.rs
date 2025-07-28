@@ -7,8 +7,17 @@ use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305, XNonce, aead::AeadMut};
 use indicatif::*;
 use rand::TryRngCore;
 use rand_core::{OsRng, RngCore};
-use serde_json::{Deserializer, Serializer};
+use serde::Serialize;
+
 use std::time::Duration;
+
+fn vec_to_str(vec: &Vec<u8>) -> String {
+    let mut total = String::new();
+    for char in vec.iter() {
+        total.push((*char) as char);
+    }
+    total
+}
 
 pub fn encode(password: String) -> Result<(String, String), String> {
     let spinner = ProgressBar::new_spinner();
@@ -94,37 +103,83 @@ pub fn create_nonce() -> Result<[u8; 24], String> {
     }
 }
 
-pub fn encrypt_data(hash: &String, nonce: &[u8; 24], data: &String) -> Result<Vec<u8>, String> {
-    let mut cipher = XChaCha20Poly1305::new(Key::from_slice(hash.as_bytes()));
-    let cha_cha_nonce = XNonce::from_slice(nonce);
-    match cipher.encrypt(cha_cha_nonce, data.as_ref()) {
-        Err(_) => {
-            return Err("Ошибка шифрования данных!".to_string());
-        }
-        Ok(encrypted) => {
-            return Ok(encrypted);
-        }
+pub fn create_crypto_key(salt: &str, password: &str) -> Result<[u8; 32], String> {
+    let argon2 = Argon2::default();
+    let mut out = [0u8; 32];
+    match argon2.hash_password_into(password.as_bytes(), salt.as_bytes(), &mut out) {
+        Ok(()) => return Ok(out),
+        Err(e) => return Err(e.to_string()),
     }
 }
 
-pub fn unencrypt_data(hash: &String, nonce: &[u8; 24], data: &Vec<u8>) -> Result<DataType, String> {
-    let mut cipher = XChaCha20Poly1305::new(Key::from_slice(hash.as_bytes()));
+pub fn encrypt_str_with_nonce(
+    string: &str,
+    key: &[u8; 32],
+    nonce: &[u8; 24],
+) -> Result<Vec<u8>, String> {
+    let mut cipher = XChaCha20Poly1305::new(Key::from_slice(key));
     let xnonce = XNonce::from_slice(nonce);
-    match cipher.decrypt(&xnonce, data.as_ref()) {
-        Err(_) => return Err("Ошибка расшифровки данных!!!".to_string()),
-        Ok(unencrypted) => {
-            let st = str::from_utf8(&unencrypted).unwrap();
-            let total: DataType = serde_json::from_str(st).unwrap();
-            return Ok(total);
-        }
+
+    match cipher.encrypt(xnonce, string.as_bytes()) {
+        Ok(enc) => return Ok(enc),
+        Err(e) => Err(e.to_string()),
     }
 }
 
-pub fn unencrypt_str(hash: &String, nonce: &[u8; 24], string: &Vec<u8>) -> Result<String, String> {
-    let mut cipher = XChaCha20Poly1305::new(Key::from_slice(hash.as_bytes()));
+pub fn encrypt_str(string: &str, key: &[u8; 32]) -> Result<(Vec<u8>, [u8; 24]), String> {
+    let new_nonce;
+    match create_nonce() {
+        Ok(n) => new_nonce = n,
+        Err(e) => return Err(e.to_string()),
+    }
+
+    let mut cipher = XChaCha20Poly1305::new(Key::from_slice(key));
+    let xnonce = XNonce::from_slice(&new_nonce);
+
+    match cipher.encrypt(xnonce, string.as_bytes()) {
+        Ok(enc) => return Ok((enc, new_nonce)),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+pub fn encrypt_data(data: &DataType, key: &[u8; 32]) -> Result<(Vec<u8>, [u8; 24]), String> {
+    let new_nonce;
+    match create_nonce() {
+        Ok(n) => new_nonce = n,
+        Err(e) => return Err(e.to_string()),
+    }
+
+    let serialised;
+    match serde_json::to_string(data) {
+        Ok(ser) => serialised = ser,
+        Err(e) => return Err(e.to_string()),
+    }
+
+    match encrypt_str(serialised.as_str(), key) {
+        Ok((enc, nonce)) => return Ok((enc, nonce)),
+        Err(e) => return Err(e),
+    }
+}
+
+pub fn decrypt_str(string: &Vec<u8>, nonce: &[u8; 24], key: &[u8; 32]) -> Result<String, String> {
+    let mut cipher = XChaCha20Poly1305::new(Key::from_slice(key));
     let xnonce = XNonce::from_slice(nonce);
-    match cipher.decrypt(&xnonce, string.as_ref()) {
-        Err(_) => return Err("Ошибка расшифровки данных!!!".to_string()),
-        Ok(uncrypt) => return Ok(str::from_utf8(&uncrypt).unwrap().to_string()),
+
+    match cipher.decrypt(xnonce, string.as_ref()) {
+        Ok(dec) => return Ok(vec_to_str(&dec)),
+        Err(e) => return Err(e.to_string()),
+    }
+}
+
+pub fn decrypt_data(data: &Vec<u8>, nonce: &[u8; 24], key: &[u8; 32]) -> Result<DataType, String> {
+    let mut cipher = XChaCha20Poly1305::new(Key::from_slice(key));
+    let xnonce = XNonce::from_slice(nonce);
+
+    match cipher.decrypt(xnonce, data.as_ref()) {
+        Err(e) => return Err(e.to_string()),
+        Ok(json_text) => {
+            let json_string = vec_to_str(&json_text);
+            return Ok(serde_json::from_str(json_string.as_str()).unwrap());
+        }
     }
 }

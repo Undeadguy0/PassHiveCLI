@@ -5,25 +5,25 @@ mod os_work;
 use colored::Colorize;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    style::Stylize,
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 use db::{db_work, models};
 use std::{collections::BTreeMap, path::PathBuf};
 
-use crate::db::models::DataType;
+use crate::{
+    crypto::{create_crypto_key, encrypt_str_with_nonce},
+    db::models::DataType,
+};
 
 pub struct ShowableData {
     pub id: i64,
     pub name: String,
-    pub nonce: [u8; 24],
+    pub notice: String,
     pub data: models::DataType,
 }
 
-fn init_user_data(
-    global_hash: &String,
-    path: &PathBuf,
-    id: i64,
-) -> BTreeMap<String, Vec<ShowableData>> {
+fn init_user_data(path: &PathBuf, id: i64, key: &[u8; 32]) -> BTreeMap<String, Vec<ShowableData>> {
     let mut uploaded_data = vec![];
     match db_work::get_all_user_data(path, id) {
         Err(e) => cli::throw_err(e.to_string()),
@@ -40,35 +40,30 @@ fn init_user_data(
     total.insert("passport".to_string(), Vec::new());
 
     for data in uploaded_data.iter() {
-        let decrypted = crypto::unencrypt_data(global_hash, &(data.nonce), &(data.data));
+        let decrypted = crypto::decrypt_data(&data.data, &data.nonce, key);
         match decrypted {
             Err(e) => cli::throw_err(e),
             Ok(decrypted_data) => {
                 let mut entry = String::new();
                 let check_type = data.data_type.clone();
                 match check_type {
-                    DataType::Card { num, cvv, bank } => entry = "card".to_string(),
-                    DataType::Token { token, from } => entry = "token".to_string(),
-                    DataType::Passport {
-                        fsl,
-                        date,
-                        sex,
-                        serial,
-                        num,
-                    } => entry = "passport".to_string(),
-                    DataType::WifiConfig { name, password } => entry = "wificonfig".to_string(),
-                    DataType::Password { password } => entry = "password".to_string(),
-                    DataType::Document { text } => entry = "document".to_string(),
+                    DataType::Card { .. } => entry = "card".to_string(),
+                    DataType::Token { .. } => entry = "token".to_string(),
+                    DataType::Passport { .. } => entry = "passport".to_string(),
+                    DataType::WifiConfig { .. } => entry = "wificonfig".to_string(),
+                    DataType::Password { .. } => entry = "password".to_string(),
+                    DataType::Document { .. } => entry = "document".to_string(),
                 }
-                match crypto::unencrypt_str(global_hash, &(data.nonce), &(&data.name)) {
-                    Ok(n) => {
-                        total.get_mut(&entry).unwrap().push(ShowableData {
+                match crypto::decrypt_str(&data.name, &data.nonce, key) {
+                    Ok(nam) => match crypto::decrypt_str(&data.notice, &data.nonce, key) {
+                        Ok(not) => total.get_mut(&entry).unwrap().push(ShowableData {
                             id: data.id,
-                            name: n,
-                            nonce: data.nonce,
+                            name: nam,
+                            notice: not,
                             data: decrypted_data,
-                        });
-                    }
+                        }),
+                        Err(e) => cli::throw_err(e),
+                    },
                     Err(e) => cli::throw_err(e),
                 }
             }
@@ -108,12 +103,13 @@ fn reg(path: &PathBuf) -> bool {
     unreachable!("Ошибка в цикле регистрации!");
 }
 
-fn auth(path: &PathBuf) -> (i64, String) {
+fn auth(path: &PathBuf) -> (i64, [u8; 32]) {
+    //ID в БД + ключ
     loop {
         print!("\x1B[2J\x1B[1;1H");
         let (input_login, input_password) = cli::get_auth_data(&path);
 
-        match db_work::find_by_login(&path, &input_login) {
+        match db_work::find_by_login(path, &input_login) {
             Err(e) => cli::throw_err(e),
             Ok(response) => match response {
                 Some((db_id, hash)) => match crypto::check_password(&hash, &input_password) {
@@ -121,7 +117,18 @@ fn auth(path: &PathBuf) -> (i64, String) {
                     Ok(is_correct) => {
                         if is_correct {
                             cli::auth_seccess();
-                            return (db_id, hash);
+                            match db_work::get_salt_by_id(path, db_id) {
+                                Err(e) => {
+                                    cli::throw_err(e);
+                                }
+                                Ok(salt) => {
+                                    match create_crypto_key(salt.as_str(), input_password.as_str())
+                                    {
+                                        Err(e) => cli::throw_err(e),
+                                        Ok(key) => return (db_id, key),
+                                    }
+                                }
+                            }
                         } else {
                             cli::auth_failure();
                             continue;
@@ -140,13 +147,82 @@ fn auth(path: &PathBuf) -> (i64, String) {
     }
 }
 
-fn add_row_mode(path: &PathBuf, id: i64, hash: &String) {
-    cli::get_new_row_data();
+fn add_row_mode(
+    path: &PathBuf,
+    id: i64,
+    key: &[u8; 32],
+    all_rows: &mut BTreeMap<String, Vec<ShowableData>>,
+) {
+    let new_row;
+    match cli::get_new_row_data() {
+        Err(e) => {
+            cli::throw_err(e);
+            return;
+        }
+        Ok(row) => new_row = row,
+    }
+
+    match crypto::encrypt_data(&new_row.data, key) {
+        Err(e) => cli::throw_err(e),
+        Ok((enc_data, nonce)) => {
+            match crypto::encrypt_str_with_nonce(&new_row.name.as_str(), key, &nonce) {
+                Err(e) => cli::throw_err(e),
+                Ok(enc_name) => {
+                    match encrypt_str_with_nonce(&new_row.notice.as_str(), key, &nonce) {
+                        Err(e) => cli::throw_err(e),
+                        Ok(enc_notice) => match db_work::insert_row(
+                            path,
+                            id,
+                            &new_row.data.formal_name(),
+                            &enc_data,
+                            &enc_name,
+                            &enc_notice,
+                            &nonce,
+                        ) {
+                            Err(e) => cli::throw_err(e),
+                            Ok(fresh_id) => {
+                                all_rows.get_mut(&new_row.data.formal_name()).unwrap().push(
+                                    ShowableData {
+                                        id: fresh_id,
+                                        name: new_row.name,
+                                        notice: new_row.notice,
+                                        data: new_row.data,
+                                    },
+                                );
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    }
 }
-fn update_row_mode(path: &PathBuf, id: i64, hash: &String) {}
-fn delete_row_mode(path: &PathBuf, id: i64, hash: &String) {}
+fn update_row_mode(
+    path: &PathBuf,
+    id: i64,
+    key: &[u8; 32],
+    all_rows: &mut BTreeMap<String, Vec<ShowableData>>,
+) {
+}
+fn delete_row_mode(
+    path: &PathBuf,
+    id: i64,
+    key: &[u8; 32],
+    all_rows: &mut BTreeMap<String, Vec<ShowableData>>,
+) {
+}
 
 fn main() {
+    let default_style = cli::TableStyle::new(
+        "=".to_string().truecolor(255, 255, 255),
+        "-".to_string().truecolor(255, 255, 255),
+        "|".to_string().truecolor(255, 255, 255),
+        "#".to_string().truecolor(255, 255, 255),
+        "~".to_string().truecolor(255, 255, 255),
+        (66, 250, 20),
+        (255, 255, 255),
+    );
+
     cli::hi();
 
     let (response, path, os) = os_work::verify_data();
@@ -170,9 +246,10 @@ fn main() {
         cli::success_init_db();
     }
 
-    let mut global_id = -1;
-    let mut global_hash = String::default();
+    let mut main_user_id = -1; //ID вошедшего пользователя
+    let mut main_key = [0u8; 32]; // Основной ключ для шифрования
     let mut exit = false;
+    let mut show_all_mode = false;
 
     loop {
         if db_work::users_empty(&path) {
@@ -187,7 +264,7 @@ fn main() {
                     }
                 }
                 cli::AccountManipulation::Auth => {
-                    (global_id, global_hash) = auth(&path);
+                    (main_user_id, main_key) = auth(&path);
                     exit = true;
                     break;
                 }
@@ -199,52 +276,56 @@ fn main() {
     }
 
     // вход прошел успешно - основной цикл
-    if global_id == -1 {
+    if main_user_id == -1 {
         cli::throw_err(
             "Ошибка выхода из цикла входа + регистрации, id пользователя - -1!!!".to_string(),
         );
     }
 
-    let mut global_user_data = init_user_data(&global_hash, &path, global_id);
+    let mut global_user_data = init_user_data(&path, main_user_id, &main_key);
+
     loop {
         if let Err(e) = enable_raw_mode() {
             cli::throw_err(e.to_string());
         }
 
         print!("\x1B[2J\x1B[1;1H");
-        cli::show_all_data(&global_user_data);
+        disable_raw_mode().expect("Ошибка выхода из сырого режима!");
+        // cli::show_all_data(&global_user_data); минималистичная функция для просмотра записей, включать только для дебага добавления записей
+        enable_raw_mode().expect("Ошибка входа в сырой режим!");
         cli::show_hotkeys();
-        loop {
-            if let Err(_) = event::poll(std::time::Duration::from_millis(500)) {
-                cli::throw_err("Ошибка обработки событий!".to_string());
-            } else {
-                if let Event::Key(KeyEvent {
-                    code,
-                    modifiers,
-                    kind,
-                    state,
-                }) = event::read().unwrap()
-                {
-                    match (code, modifiers) {
-                        (KeyCode::Char('a'), KeyModifiers::CONTROL) => {
-                            add_row_mode(&path, global_id, &global_hash);
-                        }
-                        (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
-                            update_row_mode(&path, global_id, &global_hash);
-                        }
-                        (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                            delete_row_mode(&path, global_id, &global_hash);
-                        }
-                        (KeyCode::Char('e'), KeyModifiers::CONTROL) => {
-                            disable_raw_mode().unwrap();
-                            std::process::exit(0);
-                        }
-                        _ => {}
+        cli::show_data_extended(&global_user_data, &default_style);
+        if let Err(_) = event::poll(std::time::Duration::from_millis(500)) {
+            cli::throw_err("Ошибка обработки событий!".to_string());
+        } else {
+            if let Event::Key(KeyEvent {
+                code,
+                modifiers,
+                kind,
+                state,
+            }) = event::read().unwrap()
+            {
+                match (code, modifiers) {
+                    (KeyCode::Char('a'), KeyModifiers::CONTROL) => {
+                        add_row_mode(&path, main_user_id, &main_key, &mut global_user_data);
                     }
+                    (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+                        update_row_mode(&path, main_user_id, &main_key, &mut global_user_data);
+                    }
+                    (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                        delete_row_mode(&path, main_user_id, &main_key, &mut global_user_data);
+                    }
+                    (KeyCode::Char('e'), KeyModifiers::CONTROL) => {
+                        disable_raw_mode().unwrap();
+                        std::process::exit(0);
+                    }
+                    (KeyCode::Char('t'), KeyModifiers::CONTROL) => {
+                        show_all_mode = !show_all_mode;
+                    }
+                    _ => {}
                 }
             }
         }
-        break;
     }
 
     disable_raw_mode().unwrap();

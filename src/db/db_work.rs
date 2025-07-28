@@ -130,3 +130,39 @@ pub fn get_all_user_data(path: &PathBuf, user_id: i64) -> Result<Vec<UserData>, 
 
     user_iter.collect()
 }
+
+pub fn insert_row(
+    path: &PathBuf,
+    owner: i64,
+    data_type: &String,
+    data: &Vec<u8>,
+    name: &Vec<u8>,
+    notice: &Vec<u8>,
+    nonce: &[u8; 24],
+) -> Result<i64, String> {
+    let connection = connect_to_db(path).map_err(|e| format!("Ошибка подключения к БД: {}", e))?;
+
+    let sql = "INSERT INTO users (owner, data_type, data, name, notice, nonce) VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
+
+    match connection.execute(sql, params![owner, data_type, data, name, notice, nonce]) {
+        Ok(_) => {
+            let id = connection.last_insert_rowid();
+            Ok(id)
+        }
+        Err(e) => Err(format!("Ошибка вставки данных: {}", e)),
+    }
+}
+
+pub fn get_salt_by_id(path: &PathBuf, id: i64) -> Result<String, String> {
+    let connection = connect_to_db(path).map_err(|e| format!("Ошибка подключения к БД: {}", e))?;
+
+    let sql = "SELECT salt FROM meta WHERE id = ?1";
+    let mut stmt = connection
+        .prepare(sql)
+        .map_err(|e| format!("Ошибка подготовки запроса: {}", e))?;
+
+    stmt.query_row(params![id], |row| row.get::<_, String>(0))
+        .map_err(|_| {
+            "Ошибка: нет пользователя с таким ID или проблемы с чтением строки".to_string()
+        })
+}

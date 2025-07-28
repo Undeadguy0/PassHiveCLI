@@ -20,7 +20,7 @@ pub enum Sex {
     NotDeclaredYet,
 }
 impl Sex {
-    fn to_string(&self) -> String {
+    pub fn to_string(&self) -> String {
         match self {
             Sex::Male => "мужской".to_string(),
             Sex::Female => "женский".to_string(),
@@ -74,19 +74,19 @@ impl DataType {
     pub fn to_string(&self) -> String {
         match self {
             DataType::Password { password } => {
-                format!("Пароль: {}\n", password)
+                format!("Пароль: {}", password)
             }
             DataType::Card { num, cvv, bank } => {
-                format!("Номер: {},\n CVV: {},\n, Банк: {}\n", num, cvv, bank)
+                format!("Номер: {},\n CVV: {},\n, Банк: {}", num, cvv, bank)
             }
             DataType::Document { text } => {
-                format!("Содержимое : {}\n", text)
+                format!("Содержимое : {}", text)
             }
             DataType::Token { token, from } => {
-                format!("От: {},\n Токен: {}\n", from, token)
+                format!("От: {},\n Токен: {}", from, token)
             }
             DataType::WifiConfig { name, password } => {
-                format!("Название сети: {},\n Пароль: {}\n", name, password)
+                format!("Название сети: {},\n Пароль: {}", name, password)
             }
             DataType::Passport {
                 fsl,
@@ -96,7 +96,7 @@ impl DataType {
                 num,
             } => {
                 format!(
-                    "ФИО: {},\n Дата рождения: {},\n Пол: {},\n Серия: {},\n Номер: {}\n",
+                    "ФИО: {},\n Дата рождения: {},\n Пол: {},\n Серия: {},\n Номер: {}",
                     fsl,
                     date,
                     sex.to_string(),
@@ -109,22 +109,29 @@ impl DataType {
 
     pub fn name(&self) -> String {
         match self {
-            DataType::Card { num, cvv, bank } => {
+            DataType::Card { .. } => {
                 return "Банковская карта (номер, CVV, банк)".to_string();
             }
-            DataType::Token { token, from } => return "Токен (токен, от чего)".to_string(),
-            DataType::Document { text } => return "Документ (текст)".to_string(),
-            DataType::Passport {
-                fsl,
-                date,
-                sex,
-                serial,
-                num,
-            } => return "Пасспорт (ФИО, дата рождения, пол, серия, номер)".to_string(),
-            DataType::Password { password } => return "Пароль (пароль)".to_string(),
-            DataType::WifiConfig { name, password } => {
+            DataType::Token { .. } => return "Токен (токен, от чего)".to_string(),
+            DataType::Document { .. } => return "Документ (текст)".to_string(),
+            DataType::Passport { .. } => {
+                return "Пасспорт (ФИО, дата рождения, пол, серия, номер)".to_string();
+            }
+            DataType::Password { .. } => return "Пароль (пароль)".to_string(),
+            DataType::WifiConfig { .. } => {
                 return "Wifi сеть (ip/название, пароль)".to_string();
             }
+        }
+    }
+
+    pub fn formal_name(&self) -> String {
+        match self {
+            DataType::Card { .. } => "card".to_string(),
+            DataType::Token { .. } => "token".to_string(),
+            DataType::Document { .. } => "document".to_string(),
+            DataType::Passport { .. } => "passport".to_string(),
+            DataType::Password { .. } => "password".to_string(),
+            DataType::WifiConfig { .. } => "wificonfig".to_string(),
         }
     }
 }
@@ -209,5 +216,17 @@ impl UserData {
             notice,
             name,
         }
+    }
+}
+
+pub struct DataAndMeta {
+    pub data: DataType,
+    pub name: String,
+    pub notice: String,
+}
+
+impl DataAndMeta {
+    pub fn new(data: DataType, name: String, notice: String) -> Self {
+        DataAndMeta { data, name, notice }
     }
 }
