@@ -1,10 +1,12 @@
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use rusqlite::fallible_iterator::Chain;
 use strum::IntoEnumIterator;
 use unicode_width::UnicodeWidthStr;
 
 use super::db::models;
-use crate::ShowableData;
-use crate::db::models::{DataAndMeta, DataType};
+use super::main;
+use crate::db::models::{DataAndMeta, DataType, Sex};
+use crate::{ShowableData, update_or_save};
 use colored::{ColoredString, Colorize, Style};
 use rpassword::read_password;
 use std::cmp::{max, min};
@@ -369,8 +371,9 @@ pub fn show_all_data(data: &BTreeMap<String, Vec<ShowableData>>) {
         }
         if !entry.1.is_empty() {
             not_empty = true;
-            let header_len = header.len();
+            let header_len = UnicodeWidthStr::width(header);
             let decorate = "#".repeat((len - header_len) / 2 + 1);
+
             println!(
                 "{} {} {}.",
                 &decorate.truecolor(246, 196, 32),
@@ -428,11 +431,6 @@ pub fn show_hotkeys() {
     );
     println!(
         "{} {}",
-        "Перейти в расширенный режим отображения -".truecolor(246, 196, 32),
-        "CTRL + T".bold()
-    );
-    println!(
-        "{} {}",
         "Выйти из приложения -".truecolor(246, 196, 32),
         "CTRL + E".bold()
     );
@@ -466,9 +464,6 @@ pub fn get_new_row_data() -> Result<DataAndMeta, String> {
     let notice = input.trim().to_string();
     input.clear();
 
-    let mut data = DataType::Password {
-        password: "8".to_string(),
-    };
     let all_data_types: Vec<DataType> = DataType::iter().collect();
     println!(
         "\n{}",
@@ -515,7 +510,7 @@ pub fn get_new_row_data() -> Result<DataAndMeta, String> {
         }
     }
 
-    match &all_data_types[ind_of_type] {
+    let data = match &all_data_types[ind_of_type] {
         DataType::Card { .. } => {
             let card_num: String;
             loop {
@@ -581,11 +576,11 @@ pub fn get_new_row_data() -> Result<DataAndMeta, String> {
                 .map_err(|_| "Ошибка считывания строки!".to_string())?;
             let card_bank = input.trim().to_string();
 
-            let data = DataType::Card {
+            DataType::Card {
                 num: card_num,
                 cvv: card_cvv,
                 bank: card_bank,
-            };
+            }
         }
         DataType::Token { .. } => {
             print!(
@@ -607,7 +602,7 @@ pub fn get_new_row_data() -> Result<DataAndMeta, String> {
             let token = input.trim().to_string();
 
             let result = DataType::Token { token, from };
-            data = result;
+            result
         }
         DataType::Password { .. } => {
             print!("\n{}", "Введите пароль: ".truecolor(246, 196, 32));
@@ -627,7 +622,7 @@ pub fn get_new_row_data() -> Result<DataAndMeta, String> {
             }
 
             let result = DataType::Password { password };
-            data = result;
+            result
         }
         DataType::WifiConfig { .. } => {
             print!("\n{}", "Введите имя Wi-Fi сети: ".truecolor(246, 196, 32));
@@ -647,7 +642,7 @@ pub fn get_new_row_data() -> Result<DataAndMeta, String> {
             let password = input.trim().to_string();
 
             let result = DataType::WifiConfig { name, password };
-            data = result;
+            result
         }
         DataType::Document { .. } => {
             println!(
@@ -670,7 +665,7 @@ pub fn get_new_row_data() -> Result<DataAndMeta, String> {
             let text = text_lines.join("\n");
 
             let result = DataType::Document { text };
-            data = result;
+            result
         }
         DataType::Passport { .. } => {
             print!("\n{}", "Введите ФИО: ".truecolor(246, 196, 32));
@@ -731,7 +726,7 @@ pub fn get_new_row_data() -> Result<DataAndMeta, String> {
                 break;
             }
 
-            let num: u16;
+            let num: u32;
             loop {
                 print!(
                     "\n{}",
@@ -748,7 +743,7 @@ pub fn get_new_row_data() -> Result<DataAndMeta, String> {
                     continue;
                 }
                 num = trimmed
-                    .parse::<u16>()
+                    .parse::<u32>()
                     .map_err(|_| "Ошибка парсинга номера!".to_string())?;
                 break;
             }
@@ -760,9 +755,9 @@ pub fn get_new_row_data() -> Result<DataAndMeta, String> {
                 serial,
                 num,
             };
-            let data = result;
+            result
         }
-    }
+    };
     enable_raw_mode().unwrap();
     return Ok(DataAndMeta::new(data, name, notice));
 }
@@ -833,15 +828,21 @@ pub fn show_data_extended(data: &BTreeMap<String, Vec<ShowableData>>, style: &Ta
         }
         if section.1.len() != 0 {
             for data in section.1 {
+                let name_width = UnicodeWidthStr::width(data.name.as_str());
+                let pad_name = len.saturating_sub(name_width);
+
                 println!(
                     "{} {} {} Название:{}{}{}",
                     style.vertical_frame,
                     counter,
                     style.vertical_inner,
                     data.name.colorize(&style.text_color_rgb),
-                    " ".to_string().repeat(len - data.name.len() - 7),
+                    " ".repeat(pad_name - 7),
                     style.vertical_frame,
                 );
+
+                let notice_width = UnicodeWidthStr::width(data.notice.as_str());
+                let pad_notice = len.saturating_sub(notice_width);
 
                 println!(
                     "{} {} {} Заметка:{}{}{}",
@@ -849,12 +850,13 @@ pub fn show_data_extended(data: &BTreeMap<String, Vec<ShowableData>>, style: &Ta
                     " ".repeat(num_buf),
                     style.vertical_inner,
                     data.notice.colorize(&style.text_color_rgb),
-                    " ".to_string().repeat(len - data.notice.len() - 6),
+                    " ".repeat(pad_notice - 6),
                     style.vertical_frame,
                 );
 
                 for line in data.data.to_string().split("\n") {
-                    let visible_width = UnicodeWidthStr::width(line);
+                    let line_to_print: &str = &line.to_string().colorize(&style.text_color_rgb);
+                    let visible_width = UnicodeWidthStr::width(line_to_print);
                     let pad = len.saturating_sub(visible_width);
 
                     println!(
@@ -862,7 +864,7 @@ pub fn show_data_extended(data: &BTreeMap<String, Vec<ShowableData>>, style: &Ta
                         style.vertical_frame,
                         " ".repeat(num_buf),
                         style.vertical_inner,
-                        line.to_string().colorize(&style.text_color_rgb),
+                        line_to_print,
                         " ".repeat(pad + 2),
                         style.vertical_frame,
                     );
@@ -884,4 +886,557 @@ pub fn show_data_extended(data: &BTreeMap<String, Vec<ShowableData>>, style: &Ta
         style.horizontal_frame.colored_repeat(len + num_buf + 7)
     );
     enable_raw_mode().expect("Ошибка входа в сырой режим!");
+}
+
+pub fn select_id_to_delete(
+    all_data: &BTreeMap<String, Vec<ShowableData>>,
+) -> (i64, (usize, usize)) /* индекс в БД + (индекс области, индекс в векторе) */ {
+    disable_raw_mode().expect("Ошибка выхода из сырого режима");
+
+    print!(
+        "{} ",
+        "Введите номер записи к удалению (слева от записи):"
+            .to_string()
+            .truecolor(246, 196, 32)
+    );
+    stdout().flush().unwrap();
+
+    let mut input = String::new();
+
+    loop {
+        stdin()
+            .read_line(&mut input)
+            .expect("Ошибка считывания ввода!");
+
+        match input.trim().parse::<u16>() {
+            Err(_) => println!("Ошибка во введенном номере!"),
+            Ok(num) => {
+                let ind = (num - 1) as usize;
+                match find_data_by_index(all_data, ind) {
+                    None => {
+                        println!("{}", "Ошибка, нет записи с таким номером!".purple().bold());
+                        continue;
+                    }
+                    Some((partision, local_index)) => {
+                        for part in all_data.iter().enumerate() {
+                            if part.0 == partision {
+                                let target = &part.1.1[local_index];
+                                return (target.id, (partision, local_index));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        input.clear();
+    }
+    enable_raw_mode().expect("Ошибка возвращения в сырой режим");
+    (0, (0, 0))
+}
+
+fn find_data_by_index(
+    data: &BTreeMap<String, Vec<ShowableData>>,
+    index: usize,
+) -> Option<(usize, usize)> {
+    let mut counter = 0usize;
+    let mut part = 0usize;
+    let mut ind = 0usize;
+
+    for entry in data {
+        if let Some(_) = entry.1.first() {
+            for _ in entry.1 {
+                if counter == index {
+                    return Some((part, ind));
+                }
+                counter += 1;
+                ind += 1;
+            }
+        }
+        part += 1;
+        ind = 0;
+    }
+    None
+}
+
+pub fn select_id_to_update(
+    all_data: &BTreeMap<String, Vec<ShowableData>>,
+) -> (i64, (usize, usize)) {
+    disable_raw_mode().expect("Ошибка выхода из сырого режима");
+
+    print!(
+        "{} ",
+        "Введите номер записи к изменению (слева от записи):"
+            .to_string()
+            .truecolor(246, 196, 32)
+    );
+    stdout().flush().unwrap();
+
+    let mut input = String::new();
+
+    loop {
+        stdin()
+            .read_line(&mut input)
+            .expect("Ошибка считывания ввода!");
+
+        match input.trim().parse::<u16>() {
+            Err(_) => println!("Ошибка во введенном номере!"),
+            Ok(num) => {
+                let ind = (num - 1) as usize;
+                match find_data_by_index(all_data, ind) {
+                    None => {
+                        println!("{}", "Ошибка, нет записи с таким номером!".purple().bold());
+                        continue;
+                    }
+                    Some((partision, local_index)) => {
+                        for part in all_data.iter().enumerate() {
+                            if part.0 == partision {
+                                let target = &part.1.1[local_index];
+                                return (target.id, (partision, local_index));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        input.clear();
+    }
+    enable_raw_mode().expect("Ошибка входа в сырой режим");
+    (0, (0, 0))
+}
+
+pub fn correct_data(data: &mut ShowableData) -> ShowableData {
+    let mut input = String::new();
+
+    print!(
+        "{}",
+        "Введите новое название для записи. Либо просто нажмите ENTER:".truecolor(246, 196, 32)
+    );
+    stdout().flush().unwrap();
+    stdin()
+        .read_line(&mut input)
+        .expect("Ошибка считывания строки");
+    let new_name = {
+        if input.trim().len() == 0 {
+            None
+        } else {
+            Some(input.trim().to_string())
+        }
+    };
+    input.clear();
+    print!(
+        "{}",
+        "Введите новое примечание для записи. Или просто нажмите ENTER".truecolor(246, 196, 32)
+    );
+    stdout().flush().unwrap();
+    stdin()
+        .read_line(&mut input)
+        .expect("Ошибка считывания ввода");
+    let new_notice = {
+        if input.trim().len() == 0 {
+            None
+        } else {
+            Some(input.trim().to_string())
+        }
+    };
+    match data.data.clone() {
+        DataType::Card { num, cvv, bank } => {
+            let new_num: Option<String> = loop {
+                print!(
+                    "{} ",
+                    "Введите новый номер карты, или просто введите ENTER:".truecolor(246, 196, 32)
+                );
+                stdout().flush().unwrap();
+
+                input.clear();
+                stdin()
+                    .read_line(&mut input)
+                    .expect("Ошибка считывания ввода");
+
+                if input.trim().len() == 0 {
+                    break None;
+                } else {
+                    if input.trim().len() != 16 {
+                        println!(
+                            "{}",
+                            "В номере должно быть ШЕСТНАДЦАТЬ цифр".purple().bold()
+                        );
+                        continue;
+                    }
+                    input = input.trim().to_string();
+                    if !(input.chars().all(|char| char.is_digit(10))) {
+                        println!("{}", "В номере должны быть ТОЛЬКО цифры".purple().bold());
+                        continue;
+                    }
+
+                    break Some(input.clone());
+                }
+            };
+
+            let new_cvv: Option<u16> = loop {
+                print!(
+                    "{} ",
+                    "Введите новый CVV, или просто введите ENTER:".truecolor(246, 196, 32)
+                );
+                stdout().flush().unwrap();
+
+                input.clear();
+                stdin()
+                    .read_line(&mut input)
+                    .expect("Ошибка считывания ввода!");
+
+                if input.trim().len() == 0 {
+                    break None;
+                }
+
+                match input.trim().parse::<u16>() {
+                    Err(_) => {
+                        println!("{}", "Ошибка ввода!".purple().bold());
+                        continue;
+                    }
+                    Ok(cv) => {
+                        if cv.to_string().len() == 4 {
+                            break Some(cv);
+                        }
+                        println!("{}", "В CVV должно быть ЧЕТЫРЕ цифры!".purple().bold());
+                        continue;
+                    }
+                }
+            };
+
+            let new_bank: Option<String> = loop {
+                print!(
+                    "{} ",
+                    "Введите новый банк. Иначе введите ENTER:".truecolor(246, 196, 32)
+                );
+                stdout().flush().unwrap();
+
+                input.clear();
+                stdin()
+                    .read_line(&mut input)
+                    .expect("Ошибка считывания ввода");
+
+                match input.trim().len() {
+                    0 => break None,
+                    _ => break Some(input.trim().to_string()),
+                }
+            };
+
+            return ShowableData {
+                id: data.id,
+                name: update_or_save(new_name, data.name.clone()),
+                notice: update_or_save(new_notice, data.notice.clone()),
+                data: DataType::Card {
+                    num: update_or_save(new_num, num),
+                    cvv: update_or_save(new_cvv, cvv),
+                    bank: update_or_save(new_bank, bank),
+                },
+            };
+        }
+        DataType::Document { .. } => {
+            let mut new_text = String::new();
+            println!(
+                "{}",
+                "Вводите новые строчки. Когда закончите, введите пустую строку."
+                    .truecolor(246, 196, 32)
+            );
+            loop {
+                input.clear();
+                stdin().read_line(&mut input).unwrap();
+
+                if input.trim().len() == 0 {
+                    break;
+                }
+                new_text += input.as_str();
+            }
+            ShowableData {
+                id: data.id,
+                name: update_or_save(new_name, data.name.clone()),
+                notice: update_or_save(new_notice, data.notice.clone()),
+                data: DataType::Document { text: new_text },
+            }
+        }
+        DataType::Passport {
+            fsl,
+            date,
+            sex,
+            serial,
+            num,
+        } => {
+            input.clear();
+            print!(
+                "{} ",
+                "Введите ФИО, или просто введите ENTER:".truecolor(246, 196, 32)
+            );
+            stdout().flush().unwrap();
+
+            stdin()
+                .read_line(&mut input)
+                .expect("Ошибка считывания строки!");
+            let new_fsl = {
+                if input.trim().len() == 0 {
+                    None
+                } else {
+                    Some(input.trim().to_string())
+                }
+            };
+
+            let new_date = loop {
+                input.clear();
+
+                print!(
+                    "{} ",
+                    "Введите новую дату выдачи паспорта (ДД.ММ.ГГГГ). Или просто нажмите ENTER:"
+                        .truecolor(246, 196, 32)
+                );
+                stdout().flush().unwrap();
+
+                stdin()
+                    .read_line(&mut input)
+                    .expect("Ошибка считывания данных!");
+
+                input = input.trim().to_string();
+                if input.len() == 0 {
+                    break None;
+                } else {
+                    let date_m_year: Vec<String> =
+                        input.split(".").map(|x| x.to_string()).collect();
+                    if (date_m_year[0].len() == 2
+                        && date_m_year[0].chars().all(|char| char.is_digit(10)))
+                        && (date_m_year[1].len() == 2
+                            && date_m_year[1].chars().all(|char| char.is_digit(10)))
+                        && (date_m_year[2].len() == 4
+                            && date_m_year[2].chars().all(|char| char.is_digit(10)))
+                    {
+                        break Some(input.clone());
+                    } else {
+                        println!("{}", "Неверный формат даты!".purple().bold());
+                        continue;
+                    }
+                }
+            };
+
+            let new_sex = loop {
+                input.clear();
+
+                print!(
+                    "{} ",
+                    "Введите новый пол (м/ж), либо просто нажмите ENTER:".truecolor(246, 196, 32)
+                );
+                stdout().flush().unwrap();
+
+                stdin()
+                    .read_line(&mut input)
+                    .expect("Ошибка считывания данных");
+
+                match input.trim() {
+                    "м" | "М" => {
+                        break Some(Sex::Male);
+                    }
+                    "ж" | "Ж" => {
+                        break Some(Sex::Female);
+                    }
+                    _ => {
+                        if input.len() == 0 {
+                            break None;
+                        }
+                        println!("{}", "Ошибка при вводе пола!".purple().bold());
+                        continue;
+                    }
+                }
+            };
+
+            let new_serial = loop {
+                input.clear();
+
+                print!(
+                    "{} ",
+                    "Введите серию пасспорта (4 цифры) или просто введите ENTER:"
+                );
+                stdout().flush().unwrap();
+
+                stdin()
+                    .read_line(&mut input)
+                    .expect("Ошибка считывания ввода!");
+
+                if input.trim().len() == 0 {
+                    break None;
+                }
+
+                match input.trim().parse::<u16>() {
+                    Err(_) => {
+                        println!("{}", "Ошибка в вводе серии!".purple().bold());
+                        continue;
+                    }
+                    Ok(s) => {
+                        if s.to_string().len() == 4 {
+                            break Some(s);
+                        } else {
+                            println!("{}", "В серии должно быть 4 цифры!".purple().bold())
+                        }
+                    }
+                }
+            };
+
+            let new_num = loop {
+                input.clear();
+
+                print!(
+                    "{} ",
+                    "Введите номер пасспорта (6 цифр), или просто нажмите ENTER:"
+                        .truecolor(246, 196, 32)
+                );
+                stdout().flush().unwrap();
+
+                stdin()
+                    .read_line(&mut input)
+                    .expect("Ошибка считывание данных!");
+
+                if input.trim().len() == 0 {
+                    break None;
+                }
+                match input.trim().parse::<u32>() {
+                    Err(_) => {
+                        println!("{}", "Ошибка ввода номера!".purple().bold());
+                        continue;
+                    }
+                    Ok(n) => {
+                        if n.to_string().len() == 6 {
+                            break Some(n);
+                        } else {
+                            println!("{}", "В номере должно быть 6 цифр!".purple().bold());
+                            continue;
+                        }
+                    }
+                }
+            };
+
+            ShowableData {
+                id: data.id,
+                name: update_or_save(new_name, data.name.clone()),
+                notice: update_or_save(new_notice, data.notice.clone()),
+                data: DataType::Passport {
+                    fsl: update_or_save(new_fsl, fsl),
+                    date: update_or_save(new_date, date),
+                    sex: update_or_save(new_sex, sex),
+                    serial: update_or_save(new_serial, serial),
+                    num: update_or_save(new_num, num),
+                },
+            }
+        }
+        DataType::Password { .. } => {
+            print!("{} ", "Введите новый пароль:".truecolor(246, 196, 32));
+            stdout().flush().unwrap();
+
+            input = read_password().expect("Ошибка считывания ввода!");
+            ShowableData {
+                id: data.id,
+                name: update_or_save(new_name, data.name.clone()),
+                notice: update_or_save(new_notice, data.notice.clone()),
+                data: DataType::Password {
+                    password: input.trim().to_string(),
+                },
+            }
+        }
+        DataType::WifiConfig { name, password } => {
+            print!(
+                "{} ",
+                "Введите новоое название/IP сети, или просто нажмите ENTER: "
+                    .truecolor(246, 196, 32)
+            );
+            stdout().flush().unwrap();
+
+            input.clear();
+            stdin()
+                .read_line(&mut input)
+                .expect("Ошибка считывания данных");
+            let new_wifi = {
+                if input.trim().len() == 0 {
+                    None
+                } else {
+                    Some(input.trim().to_string())
+                }
+            };
+
+            input.clear();
+            print!(
+                "{} ",
+                "Введите новый пароль, или просто нажмите ENTER:".truecolor(246, 196, 32)
+            );
+            stdout().flush().unwrap();
+
+            stdin()
+                .read_line(&mut input)
+                .expect("Ошибка считывания данных");
+
+            let new_pass = {
+                if input.trim().len() == 0 {
+                    None
+                } else {
+                    Some(input.trim().to_string())
+                }
+            };
+
+            ShowableData {
+                id: data.id,
+                name: update_or_save(new_name, data.name.clone()),
+                notice: update_or_save(new_notice, data.notice.clone()),
+                data: DataType::WifiConfig {
+                    name: update_or_save(new_wifi, name),
+                    password: update_or_save(new_pass, password),
+                },
+            }
+        }
+        DataType::Token { token, from } => {
+            print!(
+                "{} ",
+                "Введите новый токен, иначе прото нажмите ENTER:".truecolor(246, 196, 32)
+            );
+            stdout().flush().unwrap();
+
+            input.clear();
+            stdin()
+                .read_line(&mut input)
+                .expect("Ошибка считывания данных");
+
+            let new_token = {
+                if input.trim().len() == 0 {
+                    None
+                } else {
+                    Some(input.trim().to_string())
+                }
+            };
+
+            input.clear();
+
+            print!(
+                "{} ",
+                "Введите новую информацию о том, от чего токен, или просто введите ENTER:"
+                    .truecolor(246, 196, 32)
+            );
+            stdout().flush().unwrap();
+
+            stdin()
+                .read_line(&mut input)
+                .expect("Ошибка считывания данных");
+            let new_from = {
+                if input.trim().len() == 0 {
+                    None
+                } else {
+                    Some(input.trim().to_string())
+                }
+            };
+
+            ShowableData {
+                id: data.id,
+                name: update_or_save(new_name, data.name.clone()),
+                notice: update_or_save(new_notice, data.notice.clone()),
+                data: DataType::Token {
+                    token: update_or_save(new_token, token),
+                    from: update_or_save(new_from, from),
+                },
+            }
+        }
+    }
 }

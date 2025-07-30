@@ -12,8 +12,9 @@ use db::{db_work, models};
 use std::{collections::BTreeMap, path::PathBuf};
 
 use crate::{
+    cli::throw_err,
     crypto::{create_crypto_key, encrypt_str_with_nonce},
-    db::models::DataType,
+    db::{db_work::update_row, models::DataType},
 };
 
 pub struct ShowableData {
@@ -203,13 +204,65 @@ fn update_row_mode(
     key: &[u8; 32],
     all_rows: &mut BTreeMap<String, Vec<ShowableData>>,
 ) {
+    let (db_id, (partision_index, local_index)) = cli::select_id_to_update(all_rows);
+    let mut target: Option<&mut ShowableData> = None;
+
+    for part in all_rows.iter_mut().enumerate() {
+        if part.0 == partision_index {
+            target = Some(
+                part.1
+                    .1
+                    .get_mut(local_index)
+                    .expect("Ошибка... каким-то образом данных с таким индексом нет"),
+            );
+            break;
+        }
+    }
+
+    let free_target = target.expect("Каким-то образом ненайденный id прошел мимо expect ранее");
+
+    let updated_data = cli::correct_data(free_target);
+
+    match crypto::encrypt_data(&updated_data.data, key) {
+        Err(e) => throw_err(e),
+        Ok((encrypted, nonce)) => {
+            match crypto::encrypt_str_with_nonce(&updated_data.name, key, &nonce) {
+                Err(e) => throw_err(e),
+                Ok(enc_name) => {
+                    match crypto::encrypt_str_with_nonce(&updated_data.notice, key, &nonce) {
+                        Err(e) => throw_err(e),
+                        Ok(enc_notice) => {
+                            match update_row(path, encrypted, nonce, enc_name, enc_notice, db_id) {
+                                Err(e) => throw_err(e),
+                                Ok(()) => {
+                                    *free_target = updated_data;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
-fn delete_row_mode(
-    path: &PathBuf,
-    id: i64,
-    key: &[u8; 32],
-    all_rows: &mut BTreeMap<String, Vec<ShowableData>>,
-) {
+fn delete_row_mode(path: &PathBuf, all_rows: &mut BTreeMap<String, Vec<ShowableData>>) {
+    let (db_id, (partision_index, local_index)) = cli::select_id_to_delete(all_rows);
+    db_work::delete_row(path, db_id).expect("Ошибка удаления из БД");
+
+    for part in all_rows.iter_mut().enumerate() {
+        if part.0 == partision_index {
+            part.1.1.remove(local_index);
+            return;
+        }
+    }
+}
+
+pub fn update_or_save<T>(first: Option<T>, second: T) -> T {
+    //Если первый не None - возвращает первый аргумент. Иначе второй
+    if let None = first {
+        return second;
+    }
+    first.unwrap()
 }
 
 fn main() {
@@ -249,8 +302,6 @@ fn main() {
     let mut main_user_id = -1; //ID вошедшего пользователя
     let mut main_key = [0u8; 32]; // Основной ключ для шифрования
     let mut exit = false;
-    let mut show_all_mode = false;
-
     loop {
         if db_work::users_empty(&path) {
             if !reg(&path) {
@@ -313,14 +364,11 @@ fn main() {
                         update_row_mode(&path, main_user_id, &main_key, &mut global_user_data);
                     }
                     (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                        delete_row_mode(&path, main_user_id, &main_key, &mut global_user_data);
+                        delete_row_mode(&path, &mut global_user_data);
                     }
                     (KeyCode::Char('e'), KeyModifiers::CONTROL) => {
                         disable_raw_mode().unwrap();
                         std::process::exit(0);
-                    }
-                    (KeyCode::Char('t'), KeyModifiers::CONTROL) => {
-                        show_all_mode = !show_all_mode;
                     }
                     _ => {}
                 }

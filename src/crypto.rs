@@ -12,11 +12,7 @@ use serde::Serialize;
 use std::time::Duration;
 
 fn vec_to_str(vec: &Vec<u8>) -> String {
-    let mut total = String::new();
-    for char in vec.iter() {
-        total.push((*char) as char);
-    }
-    total
+    String::from_utf8(vec.clone()).unwrap()
 }
 
 pub fn encode(password: String) -> Result<(String, String), String> {
@@ -143,12 +139,6 @@ pub fn encrypt_str(string: &str, key: &[u8; 32]) -> Result<(Vec<u8>, [u8; 24]), 
 }
 
 pub fn encrypt_data(data: &DataType, key: &[u8; 32]) -> Result<(Vec<u8>, [u8; 24]), String> {
-    let new_nonce;
-    match create_nonce() {
-        Ok(n) => new_nonce = n,
-        Err(e) => return Err(e.to_string()),
-    }
-
     let serialised;
     match serde_json::to_string(data) {
         Ok(ser) => serialised = ser,

@@ -166,3 +166,34 @@ pub fn get_salt_by_id(path: &PathBuf, id: i64) -> Result<String, String> {
             "Ошибка: нет пользователя с таким ID или проблемы с чтением строки".to_string()
         })
 }
+
+pub fn delete_row(path: &PathBuf, id: i64) -> Result<(), String> {
+    let connection = connect_to_db(path).map_err(|e| format!("Ошибка подключения к БД: {}", e))?;
+
+    let sql = "DELETE FROM users WHERE id=?1";
+
+    match connection.execute(sql, params![id]) {
+        Err(e) => return Err(e.to_string()),
+        Ok(_) => return Ok(()),
+    }
+}
+
+pub fn update_row(
+    path: &PathBuf,
+    enc_data: Vec<u8>,
+    nonce: [u8; 24],
+    name: Vec<u8>,
+    notice: Vec<u8>,
+    id: i64,
+) -> Result<(), String> {
+    let connection = connect_to_db(path).map_err(|e| format!("Ошибка подключения к БД: {}", e))?;
+
+    let sql = "
+        UPDATE users
+        SET data = ?1, name = ?2, notice = ?3, nonce = ?4
+        WHERE id = ?5";
+    match connection.execute(sql, params![enc_data, name, notice, nonce, id]) {
+        Err(e) => Err(e.to_string()),
+        Ok(_) => Ok(()),
+    }
+}

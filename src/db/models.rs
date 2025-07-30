@@ -52,7 +52,7 @@ pub enum DataType {
         date: String,
         sex: Sex,
         serial: u16,
-        num: u16,
+        num: u32,
     },
 
     Document {
