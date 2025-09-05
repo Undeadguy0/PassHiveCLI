@@ -1,6 +1,6 @@
 use super::models::*;
 use rusqlite::{Connection, params};
-use std::path::PathBuf;
+use std::path::{self, PathBuf};
 
 fn connect_to_db(path: &PathBuf) -> Result<Connection, String> {
     Connection::open(path.join("passhive.db"))
@@ -40,6 +40,17 @@ pub fn init_db(path: &PathBuf) -> Result<(), String> {
     connection
         .execute(sql_users, [])
         .map_err(|e| format!("Ошибка создания таблицы users: {}", e))?;
+
+    let sql_keys = "
+        CREATE TABLE IF NOT EXISTS keys (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner INTEGER NOT NULL,
+        pubkey BLOB NOT NULL
+        )";
+    connection
+        .execute(sql_keys, [])
+        .map_err(|e| format!("Ошибка создания таблицы keys: {}", e))?;
+
     Ok(())
 }
 
@@ -196,4 +207,15 @@ pub fn update_row(
         Err(e) => Err(e.to_string()),
         Ok(_) => Ok(()),
     }
+}
+
+pub fn add_key(path: &PathBuf, owner: i64, key: &[u8]) -> Result<(), String> {
+    let connection = connect_to_db(path).map_err(|e| format!("Ошибка подключения к БД: {}", e))?;
+
+    let sql = "INSERT INTO keys (owner, pubkey) VALUES (?1, ?2)";
+    connection
+        .execute(sql, params![owner, key])
+        .map_err(|e| format!("Ошибка внесения ключа в бд! {}", e))?;
+
+    Ok(())
 }

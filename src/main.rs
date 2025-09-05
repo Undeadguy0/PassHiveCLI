@@ -2,20 +2,18 @@ mod cli;
 mod crypto;
 mod db;
 mod os_work;
+use crate::{
+    cli::throw_err,
+    crypto::{create_crypto_key, encrypt_str_with_nonce},
+    db::{db_work::*, models::*},
+};
 use colored::Colorize;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-    style::Stylize,
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 use db::{db_work, models};
 use std::{collections::BTreeMap, path::PathBuf};
-
-use crate::{
-    cli::throw_err,
-    crypto::{create_crypto_key, encrypt_str_with_nonce},
-    db::{db_work::update_row, models::DataType},
-};
 
 pub struct ShowableData {
     pub id: i64,

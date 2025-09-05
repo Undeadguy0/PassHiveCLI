@@ -1,27 +1,15 @@
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use rusqlite::fallible_iterator::Chain;
-use strum::IntoEnumIterator;
-use unicode_width::UnicodeWidthStr;
-
 use super::db::models;
-use super::main;
 use crate::db::models::{DataAndMeta, DataType, Sex};
 use crate::{ShowableData, update_or_save};
-use colored::{ColoredString, Colorize, Style};
+use colored::{ColoredString, Colorize};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use rpassword::read_password;
-use std::cmp::{max, min};
+use std::cmp::max;
 use std::io::{Write, stdin, stdout};
+use std::usize;
 use std::{collections::BTreeMap, path::PathBuf};
-use std::{num, usize};
-
-fn titlemaker(len: usize, title: &String, chars: &String) -> String {
-    if title.len() >= len {
-        return title.clone(); // или можно добавить декора минимальной длины
-    }
-
-    let decorator = (len - title.len()) / 2 + 1;
-    chars.repeat(decorator) + title + &chars.repeat(decorator)
-}
+use strum::IntoEnumIterator;
+use unicode_width::UnicodeWidthStr;
 
 trait ColoredAsStr {
     fn colored_repeat(&self, times: usize) -> ColoredString;

@@ -1,4 +1,4 @@
-use crate::db::models::{DataType, UserData};
+use crate::db::models::DataType;
 use argon2::{
     Algorithm, Argon2, Params, PasswordHash, PasswordVerifier, Version,
     password_hash::{PasswordHasher, SaltString},
@@ -6,8 +6,7 @@ use argon2::{
 use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305, XNonce, aead::AeadMut};
 use indicatif::*;
 use rand::TryRngCore;
-use rand_core::{OsRng, RngCore};
-use serde::Serialize;
+use rand_core::OsRng;
 
 use std::time::Duration;
 
